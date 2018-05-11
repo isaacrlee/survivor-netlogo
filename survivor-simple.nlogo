@@ -1,13 +1,23 @@
 breed [ contestants contestant ]
 contestants-own [
+  eliminated?
   tribe
   physical
   perceived-threat
+  ;; for resume
+  finish
+  num-challenges-won
+
 ]
 globals [
+  ;; state
   merged?
-  winning-contestant
-  winning-tribe
+  winning-contestant ;; most recent individual challenge winner
+  winning-tribe ;; most recent tribal challenge winner
+  ;; logs
+  challenge-eliminated-list-element ;; most recent challenge winner, eliminated contestant pair
+  challenge-eliminated-list ;; list of challenge winner, eliminated contestant pairs
+  contestant-resumes ;; list of contestant resumes
 ]
 to setup
   ca
@@ -16,6 +26,8 @@ to setup
     set tribe 0
     set physical random 10
     set color blue
+    set eliminated? false
+    set num-challenges-won 0
     spread-out-vertically
   ]
 
@@ -24,15 +36,22 @@ to setup
     set tribe 1
     set physical random 10
     set color yellow
+    set eliminated? false
+    set num-challenges-won 0
     spread-out-vertically
   ]
   set merged? false
+  set challenge-eliminated-list (list)
   reset-ticks
 end
 
 to go
-  if count contestants = 2 [ stop ]
-  if count contestants = 10 [ merge ]
+  if count contestants with [eliminated? = false] = 2 [
+    log-challenge-eliminated-list-to-file
+    log-contestant-resumes-to-file
+    stop
+  ]
+  if count contestants with [eliminated? = false] = 10 [ merge ]
 
   ifelse not merged? [
     pre-merge-challenge
@@ -42,6 +61,9 @@ to go
     post-merge-challenge
     post-merge-tribal-council
   ]
+
+  ;; log
+  set challenge-eliminated-list lput challenge-eliminated-list-element challenge-eliminated-list
   tick
 end
 
@@ -49,40 +71,80 @@ to pre-merge-challenge
   ifelse random (tribe-0-physical + tribe-1-physical) < tribe-0-physical
   [set winning-tribe 0]
   [set winning-tribe 1]
-  output-write winning-tribe
+
+  ;; log
+  set challenge-eliminated-list-element (list winning-tribe)
 end
 
 to post-merge-challenge
-  let roll random sum [physical] of contestants
+  let roll random sum [physical] of contestants with [eliminated? = false]
   let table-position 0
-  ask contestants [
+  ask contestants with [eliminated? = false] [
     set table-position table-position + physical
     if roll < table-position [
       set winning-contestant self
       stop
     ]
   ]
-  output-write winning-contestant
+
+  ;; log
+  set challenge-eliminated-list-element (list winning-contestant)
+  ask winning-contestant [
+    set num-challenges-won num-challenges-won + 1
+  ]
 end
 
 to pre-merge-tribal-council
-  let c min-one-of contestants with [tribe != winning-tribe] [physical]
-  output-print c
-  ask c [die]
+  ;; pick contestant to eliminate
+  let c min-one-of contestants with [tribe != winning-tribe and eliminated? = false] [physical]
 
+  ;; eliminate contestant
+  ask c [
+    eliminate-pre-merge
+  ]
+
+  ;; log
+  set challenge-eliminated-list-element lput c challenge-eliminated-list-element
+  ask c [
+    set finish count contestants - count contestants with [eliminated? = true] + 1
+  ]
+  ;;output-print challenge-eliminated-list-element
 end
 
 to post-merge-tribal-council
-  let c max-one-of contestants with [self != winning-contestant] [physical]
-  output-print c
-  ask c [die]
+  ;; pick contestant to eliminate
+  let c max-one-of contestants with [self != winning-contestant and eliminated? = false] [physical]
+
+  ;; eliminate contestant
+  ask c [
+    eliminate-post-merge
+  ]
+
+  ;; log
+  set challenge-eliminated-list-element lput c challenge-eliminated-list-element
+  ask c [
+    set finish count contestants - count contestants with [eliminated? = true] + 1
+  ]
+  ;;output-print challenge-eliminated-list-element
 end
 
 to merge
   set merged? true
-  ask contestants [
+  ask contestants with [eliminated? = false] [
     spread-out-vertically-merged
   ]
+end
+
+to eliminate-pre-merge  ;; turtle procedure
+  set eliminated? true
+  facexy min-pxcor ycor
+  fd 4
+end
+
+to eliminate-post-merge  ;; turtle procedure
+  set eliminated? true
+  facexy max-pxcor ycor
+  fd 4
 end
 
 to spread-out-vertically  ;; turtle procedure
@@ -116,21 +178,50 @@ to spread-out-vertically-merged  ;; turtle procedure
   ]
 end
 
+to log-challenge-eliminated-list-to-file
+  file-open "challenge-eliminated-list.txt"
+  file-close
+  file-delete "challenge-eliminated-list.txt"
+  file-open "challenge-eliminated-list.txt"
+  foreach challenge-eliminated-list [ elem ->
+    ;; challenge winner(ex. 0 or (contestant 19),eliminated contestant(ex. (contestant 19))
+    file-print word first elem word "," last elem
+  ]
+  file-close
+end
+
+to log-contestant-resumes-to-file
+  file-open "contestant-resumes-list.txt"
+  file-close
+  file-delete "contestant-resumes-list.txt"
+  file-open "contestant-resumes-list.txt"
+  foreach sort-on [(- finish)] turtles[ the-turtle ->
+    ask the-turtle [
+      ;; ex. contestant,tribe,finish,num-challenges-won
+      let c word who ","
+      let t word tribe ","
+      let f word finish ","
+      file-print word c word t word f num-challenges-won
+    ]
+  ]
+  file-close
+end
+
 to-report tribe-0-physical
-  let tribe-count count contestants with [tribe = 0]
+  let tribe-count count contestants with [tribe = 0 and eliminated? = false]
   if tribe-count = 0 [ report 0 ]
   let tribe-physical 0
-  ask contestants with [tribe = 0] [
+  ask contestants with [tribe = 0 and eliminated? = false] [
     set tribe-physical tribe-physical + physical
   ]
   report tribe-physical * 10 / tribe-count
 end
 
 to-report tribe-1-physical
-  let tribe-count count contestants with [tribe = 1]
+  let tribe-count count contestants with [tribe = 1 and eliminated? = false]
   if tribe-count = 0 [ report 0 ]
   let tribe-physical 0
-  ask contestants with [tribe = 1] [
+  ask contestants with [tribe = 1 and eliminated? = false] [
     set tribe-physical tribe-physical + physical
   ]
   report tribe-physical * 10 / tribe-count
