@@ -1,3 +1,7 @@
+extensions [
+  csv
+]
+
 breed [ contestants contestant ]
 directed-link-breed [ alliances alliance ]
 
@@ -9,16 +13,16 @@ contestants-own [
   vote  ;; most recent vote
   voting-history ;; list of votes
   finish ;; for resume
-  num-challenges-won ;; for resume
+  individual-challenge-wins ;; for resume
 ]
 
 globals [
   ;; state
   merged?
+  eliminated-contestant ;; most recent eliminated contestant
   winning-contestant ;; most recent individual challenge winner
   winning-tribe ;; most recent tribal challenge winner
-                ;; logs
-  challenge-eliminated-list-element ;; most recent challenge winner, eliminated contestant pair
+  ;; logs
   challenge-eliminated-list ;; list of challenge winner, eliminated contestant pairs
 ]
 to setup
@@ -26,9 +30,9 @@ to setup
   set-default-shape contestants "circle"
   create-contestants num-contestants / 2 [ ;; create first tribe
     set tribe 0
-    set physical random 10
+    set physical round random-normal 5 2
     set eliminated? false
-    set num-challenges-won 0
+    set individual-challenge-wins 0
     set voting-history (list)
     setxy (- (random max-pxcor / 2)) - max-pxcor / 2  random-ycor
   ]
@@ -37,7 +41,7 @@ to setup
     set tribe 1
     set physical random 10
     set eliminated? false
-    set num-challenges-won 0
+    set individual-challenge-wins 0
     set voting-history (list)
     setxy (random max-pxcor / 2) + max-pxcor / 2 random-ycor
   ]
@@ -57,17 +61,15 @@ to go
 
   ifelse not merged? [
     pre-merge-challenge
-    tick
     ask contestants with [eliminated? = false] [ set-pre-merge-alliances ]
-    tick
     pre-merge-tribal-council
+    set challenge-eliminated-list lput (list winning-tribe eliminated-contestant) challenge-eliminated-list
   ]
   [
     post-merge-challenge
-    tick
     ask contestants with [eliminated? = false] [ set-post-merge-alliances ]
-    tick
     post-merge-tribal-council
+    set challenge-eliminated-list lput (list winning-contestant eliminated-contestant) challenge-eliminated-list
   ]
 
   ;; layout
@@ -76,7 +78,6 @@ to go
   ]
 
   ;; log
-  set challenge-eliminated-list lput challenge-eliminated-list-element challenge-eliminated-list
   tick
 end
 
@@ -87,7 +88,6 @@ to pre-merge-challenge
 
   ;; log
   print word "Tribe " word winning-tribe " Won Challenge"
-  set challenge-eliminated-list-element (list winning-tribe)
 end
 
 to post-merge-challenge
@@ -103,9 +103,8 @@ to post-merge-challenge
 
   ;; log
   print word "Contestant " word [who] of winning-contestant " Won Challenge"
-  set challenge-eliminated-list-element (list winning-contestant)
   ask winning-contestant [
-    set num-challenges-won num-challenges-won + 1
+    set individual-challenge-wins individual-challenge-wins + 1
   ]
 end
 
@@ -115,7 +114,7 @@ to pre-merge-tribal-council
   set-pre-merge-vote
 
   ;; pick contestant to eliminate
-  let eliminated-contestant max-one-of c with [tribe != winning-tribe] [pre-merge-votes-against]
+  let to-eliminate max-one-of c with [tribe != winning-tribe] [pre-merge-votes-against]
 
   ;; log
   print word "Tribe " word (1 - winning-tribe) " Tribal Council:"
@@ -127,14 +126,10 @@ to pre-merge-tribal-council
   ]
 
   ;; eliminate contestant
-  ask eliminated-contestant [ eliminate ]
+  ask to-eliminate [ eliminate ]
 
   ;; log
-  print word "Contestant " word [who] of eliminated-contestant " Eliminated"
-  set challenge-eliminated-list-element lput eliminated-contestant challenge-eliminated-list-element
-  ask eliminated-contestant [
-    set finish count contestants - count contestants with [eliminated? = true] + 1
-  ]
+  print word "Contestant " word [who] of to-eliminate " Eliminated"
 end
 
 to post-merge-tribal-council
@@ -143,7 +138,7 @@ to post-merge-tribal-council
   set-post-merge-vote
 
   ;; pick contestant to eliminate
-  let eliminated-contestant max-one-of c [post-merge-votes-against]
+  let to-eliminate max-one-of c [post-merge-votes-against]
 
 
   ;; log
@@ -156,14 +151,10 @@ to post-merge-tribal-council
   ]
 
   ;; eliminate contestant
-  ask eliminated-contestant [ eliminate ]
+  ask to-eliminate [ eliminate ]
 
   ;; log
-  print word "Contestant " word [who] of eliminated-contestant " Eliminated"
-  set challenge-eliminated-list-element lput eliminated-contestant challenge-eliminated-list-element
-  ask eliminated-contestant [
-    set finish count contestants - count contestants with [eliminated? = true] + 1
-  ]
+  print word "Contestant " word [who] of to-eliminate " Eliminated"
 end
 
 to merge
@@ -175,8 +166,10 @@ end
 
 to eliminate  ;; turtle procedure
   set eliminated? true
+  set eliminated-contestant self
   hide-turtle
   ask my-alliances[ die ]
+  set finish count contestants - count contestants with [eliminated? = true] + 1
 end
 
 to set-pre-merge-alliances  ;; turtle procedure
@@ -303,50 +296,38 @@ to layout
 end
 
 to log-challenge-eliminated-list-to-file
-  file-open "challenge-eliminated-list.txt"
-  file-write ""
-  file-close
-  file-delete "challenge-eliminated-list.txt"
-  file-open "challenge-eliminated-list.txt"
-  foreach challenge-eliminated-list [ elem ->
-    ;; challenge winner(ex. 0 or (contestant 19),eliminated contestant(ex. (contestant 19))
-    file-print word first elem word "," last elem
-  ]
-  file-close
+  csv:to-file "challenge-eliminated-list.csv" fput (list "challenge-winner" "eliminated-contestant") challenge-eliminated-list
 end
 
 to log-contestant-resumes-to-file
-  file-open "contestant-resumes-list.txt"
-  file-write ""
-  file-close
-  file-delete "contestant-resumes-list.txt"
-  file-open "contestant-resumes-list.txt"
+  let l (list)
+  set l lput (list "contestant" "tribe" "finish" "individual-challenge-wins" "physical") l
   foreach sort-on [(- finish)] contestants[ the-contestant ->
     ask the-contestant [
-      ;; ex. contestant,tribe,finish,num-challenges-won,physical
-      let c word who ","
-      let t word tribe ","
-      let f word finish ","
-      let n word num-challenges-won ","
-      file-print word c word t word f word n physical
+      set l lput (list who tribe finish individual-challenge-wins physical) l
     ]
   ]
-  file-close
+  csv:to-file "contestant-resumes-list.csv" l
 end
 
 to log-voting-histories-to-file
-  file-open "voting-histories-list.txt"
-  file-write ""
-  file-close
-  file-delete "voting-histories-list.txt"
-  file-open "voting-histories-list.txt"
-  foreach sort-on [finish] contestants[ the-contestant ->
+  let l (list)
+
+  let r (list "contestant")
+  foreach sort-on [(- finish)] contestants [ the-contestant ->
     ask the-contestant [
-      set voting-history reduce [ [result-so-far next-item] -> word result-so-far word "," next-item] voting-history
-      file-print word who word "," voting-history
+      set r lput who r
     ]
   ]
-  file-close
+
+  set l lput r l
+
+  foreach sort-on [finish] contestants[ the-contestant ->
+    ask the-contestant [
+      set l lput fput who voting-history l
+    ]
+  ]
+  csv:to-file "voting-histories.csv" l
 end
 
 to-report tribe-0-physical
@@ -378,7 +359,7 @@ to-report post-merge-votes-against  ;; turtle reporter
 end
 
 to-report perceived-threat  ;; turtle reporter
-  report physical / count contestants with [eliminated? = false] + num-challenges-won
+  report physical / count contestants with [eliminated? = false] + individual-challenge-wins
 end
 
 to-report merged-reporter
@@ -543,7 +524,7 @@ SWITCH
 243
 layout?
 layout?
-0
+1
 1
 -1000
 
