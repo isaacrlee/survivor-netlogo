@@ -41,6 +41,7 @@ globals [
 
   my-contestant ;; created contestant
   contestant-experiment-finishes ;; list of my-contestant's finishes
+  repeat-experiment-finishes-table ;; table of each contestants finishes
 ]
 
 to setup
@@ -79,7 +80,7 @@ end
 to go
   set phase (phase + 1) mod 3
 
-  if count contestants with [eliminated? = false] = 2
+  if count contestants with [eliminated? = false] = 3
   [
     log-challenge-eliminated-list-to-file
     log-contestant-resumes-to-file
@@ -181,6 +182,7 @@ end
 to repeat-experiment
   repeat-experiment-setup
   repeat 250 [ repeat-experiment-go ]
+  log-repeat-experiment-finishes-table-to-file
 end
 
 to repeat-experiment-setup
@@ -199,7 +201,10 @@ to repeat-experiment-setup
     setxy (random max-pxcor / 2) + max-pxcor / 2 random-ycor
   ]
 
-  set contestant-experiment-finishes (list)
+  set repeat-experiment-finishes-table table:make
+  ask contestants [
+    table:put repeat-experiment-finishes-table who (list)
+  ]
 
   reset-ticks
 end
@@ -228,6 +233,11 @@ to repeat-experiment-go
     challenge
     update-alliances
     tribal-council
+  ]
+
+  ;show repeat-experiment-finishes-table
+  ask contestants [
+    table:put repeat-experiment-finishes-table who lput finish table:get repeat-experiment-finishes-table who
   ]
 
   if log?
@@ -365,6 +375,7 @@ end
 to set-alliances
   ask contestants [
     create-alliance-to rnd:weighted-one-of other contestants with [tribe = [tribe] of myself] [1 / ((absolute-value (social - [social] of myself) + 1) ^ 2)]
+    create-alliance-to rnd:weighted-one-of other contestants with [tribe = [tribe] of myself] [1 / ((absolute-value (social - [social] of myself) + 1) ^ 2)]
   ]
   if layout? [ layout ]
 end
@@ -384,12 +395,12 @@ to update-alliances
 
   ifelse not merged? [
     ;; if contestant's ally was eliminated, select one new ally at random (weighted by centrality)
-    ask contestants with [eliminated? = false and tribe != winning-tribe and not any? my-out-alliances] [
+    ask contestants with [eliminated? = false and tribe != winning-tribe and count my-out-alliances < 2] [
       create-alliance-to rnd:weighted-one-of other contestants with [eliminated? = false and tribe = [tribe] of myself] [1 / ((nw:closeness-centrality + 1) ^ 2)]
     ]
   ]
   [
-    ask contestants with [eliminated? = false and not any? my-out-alliances] [
+    ask contestants with [eliminated? = false and count my-out-alliances < 2] [
       create-alliance-to rnd:weighted-one-of other contestants with [eliminated? = false] [1 / (nw:closeness-centrality + 1)]
     ]
   ]
@@ -405,7 +416,6 @@ end
 ;; Pre-Merge procedure to decide who each contestant is going to vote for
 to set-pre-merge-vote
   ask contestants [ set vote nobody ]
-
 
   ask contestants with [eliminated? = false and tribe != winning-tribe] [
     let who-of-target [who] of rnd:weighted-one-of other contestants with [ eliminated? = false and tribe = [tribe] of myself ] [((absolute-value (social - [social] of myself))) / ((mental + physical))]
@@ -424,7 +434,7 @@ to set-pre-merge-vote
   spread-targets
 
   ask contestants with [eliminated? = false and tribe != winning-tribe] [
-    show target-table
+    ;show target-table
     let who-of-target key-with-max-value target-table
     set target contestant who-of-target
     set target-table table:make
@@ -585,6 +595,17 @@ to log-contestant-resumes-to-file
   csv:to-file "contestant-resumes.csv" l
 end
 
+to log-repeat-experiment-finishes-table-to-file
+  let l (list)
+  set l lput (list "contestant" "tribe" "finish" "mental" "physical" "social") l
+  foreach sort-on [(- mean table:get repeat-experiment-finishes-table who)] contestants[ the-contestant ->
+    ask the-contestant [
+      set l lput (list who tribe mean table:get repeat-experiment-finishes-table who mental physical social) l
+    ]
+  ]
+  csv:to-file "repeat-experiment-finishes-table.csv" l
+end
+
 to log-voting-histories-to-file
   let l (list)
 
@@ -722,7 +743,7 @@ SWITCH
 243
 layout?
 layout?
-0
+1
 1
 -1000
 
@@ -733,7 +754,7 @@ SWITCH
 288
 log?
 log?
-0
+1
 1
 -1000
 
@@ -852,7 +873,7 @@ BUTTON
 342
 488
 NIL
-repeat-experiment-go
+repeat-experiment
 NIL
 1
 T
