@@ -25,7 +25,7 @@ contestants-own [
   finish ;; for resume output
   individual-challenge-wins ;; for resume output
 
-  elimination-vote ;; for voting-history output
+  elimination-score ;; for voting-history output
   voting-history ;; for voting-history output
 ]
 
@@ -111,7 +111,7 @@ to contestant-constructor  ;; turtle procedure
   set eliminated? false
   set individual-challenge-wins 0
   set voting-history (list)
-  set elimination-vote ""
+  set elimination-score ""
 end
 
 to merge
@@ -205,24 +205,37 @@ to repeat-experiment-setup
 end
 
 to repeat-experiment-go
-  set merged? false
-  set challenge-eliminated-list (list)
-  set-alliances
-
-  set challenge-eliminated-list (list)
-
   ask contestants [
+    st
     set eliminated? false
     set individual-challenge-wins 0
     set voting-history (list)
-    set elimination-vote ""
+    set elimination-score ""
+    ifelse tribe = 0 [
+      setxy (- (random max-pxcor / 2)) - max-pxcor / 2  random-ycor
+    ]
+    [
+      setxy ((random max-pxcor / 2)) + max-pxcor / 2  random-ycor
+    ]
   ]
+
+  set merged? false
+  set challenge-eliminated-list (list)
+  set-alliances
 
   while [count contestants with [eliminated? = false] != 2] [
     if count contestants with [eliminated? = false] = num-contestants / 2 + 2 [ merge ]
     challenge
     update-alliances
     tribal-council
+  ]
+
+  if log?
+  [
+    log-challenge-eliminated-list-to-file
+    log-contestant-resumes-to-file
+    log-voting-histories-to-file
+    stop
   ]
 
   tick
@@ -284,7 +297,7 @@ to pre-merge-tribal-council
   set-pre-merge-vote
 
   ;; pick contestant to eliminate
-  let to-eliminate max-one-of c with [tribe != winning-tribe] [pre-merge-votes-against]
+  let to-eliminate max-one-of c with [tribe != winning-tribe] [votes-against]
 
   ;; log
   if log? [
@@ -308,7 +321,7 @@ to post-merge-tribal-council
   set-post-merge-vote
 
   ;; pick contestant to eliminate
-  let to-eliminate max-one-of c [post-merge-votes-against]
+  let to-eliminate max-one-of c [votes-against]
 
 
   ;; log
@@ -329,7 +342,7 @@ end
 ;; Procedure to eliminate contestant
 to eliminate  ;; turtle procedure
   if log? [ print word "Contestant " word who " Eliminated" ]
-  set-elimination-vote
+  set-elimination-score
   set eliminated? true
   set eliminated-contestant self
   hide-turtle
@@ -338,25 +351,12 @@ to eliminate  ;; turtle procedure
 end
 
 ;; Procedure to set each contestants elimination vote (ex. contestant eliminated 5 votes to 3 votes, output: (5-3))
-to set-elimination-vote ;; turtle procedure
-  ifelse not merged? [
-    if pre-merge-votes-against = 0 [ stop ]
-    set elimination-vote word "(" pre-merge-votes-against
-    ;; iterates through contestants who had votes cast against them
-    foreach sort-on [(- pre-merge-votes-against)] other contestants with [pre-merge-votes-against > 0][ the-contestant ->
-      set elimination-vote (word elimination-vote "-" [pre-merge-votes-against] of the-contestant)
-    ]
-    set elimination-vote word elimination-vote ")"
+to set-elimination-score ;; turtle procedure
+  set elimination-score (word "(" first tribal-council-score)
+  foreach but-first tribal-council-score [ num ->
+    set elimination-score (word elimination-score "-" num)
   ]
-  [
-    if post-merge-votes-against = 0 [ stop ]
-    set elimination-vote word "(" post-merge-votes-against
-    ;; iterates through contestants who had votes cast against them
-    foreach sort-on [(- post-merge-votes-against)] other contestants with [post-merge-votes-against > 0][ the-contestant ->
-      set elimination-vote (word elimination-vote "-" [post-merge-votes-against] of the-contestant)
-    ]
-    set elimination-vote word elimination-vote ")"
-  ]
+  set elimination-score (word elimination-score ")")
 end
 
 ;; ALLIANCE PROCEDURES
@@ -366,65 +366,37 @@ to set-alliances
   ask contestants [
     create-alliance-to rnd:weighted-one-of other contestants with [tribe = [tribe] of myself] [1 / ((absolute-value (social - [social] of myself) + 1) ^ 2)]
   ]
-  if layout? [
-    layout
-  ]
+  if layout? [ layout ]
 end
 
 ;; Procedure to run correct procedure to update allies
 to update-alliances
+  nw:set-context contestants with [eliminated? = false] alliances
 
-  ifelse not merged? [
-    ask contestants with [eliminated? = false and tribe != winning-tribe] [
-      update-pre-merge-alliances
-    ]
-  ]
-  [
-    ask contestants with [eliminated? = false] [
-      update-post-merge-alliances
-    ]
-  ]
-  ;; layout
-  if layout? [
-    layout
-  ]
-end
-
-;; Procedure to update allies before the merge
-to update-pre-merge-alliances  ;; turtle procedure
-  nw:set-context contestants with [eliminated? = false and tribe != winning-tribe] alliances with [member? end1 contestants with [tribe != winning-tribe]]
+  if not merged? [ nw:set-context contestants with [eliminated? = false and tribe != winning-tribe] alliances with [member? end1 contestants with [tribe != winning-tribe]] ]
 
   ;; Line In The Sand: if contestant did not vote with their ally, they are no longer allies
   ask contestants with [eliminated? = false] [
     ask my-out-alliances [
-      if [vote] of end2 != [vote] of myself [
-        die
-      ]
+      if [vote] of end2 != [vote] of myself [ die ]
     ]
   ]
 
-  ;; if contestant's ally was eliminated, select one new ally at random (weighted by centrality)
-  ask contestants with [eliminated? = false and tribe != winning-tribe and not any? my-out-alliances] [
-    create-alliance-to rnd:weighted-one-of other contestants with [eliminated? = false and tribe = [tribe] of myself] [1 / ((nw:closeness-centrality + 1) ^ 2)]
+  ifelse not merged? [
+    ;; if contestant's ally was eliminated, select one new ally at random (weighted by centrality)
+    ask contestants with [eliminated? = false and tribe != winning-tribe and not any? my-out-alliances] [
+      create-alliance-to rnd:weighted-one-of other contestants with [eliminated? = false and tribe = [tribe] of myself] [1 / ((nw:closeness-centrality + 1) ^ 2)]
+    ]
   ]
-end
-
-;; Procedure to update allies post merge
-to update-post-merge-alliances;; turtle procedure
-  nw:set-context contestants with [eliminated? = false] alliances
-
-  ;; Line In The Sand: if contestant's vote differs from ally, select new ally
-  ask contestants with [eliminated? = false] [
-    ask my-out-alliances [
-      if [vote] of end2 != [vote] of myself [
-        die
-      ]
+  [
+    ask contestants with [eliminated? = false and not any? my-out-alliances] [
+      create-alliance-to rnd:weighted-one-of other contestants with [eliminated? = false] [1 / (nw:closeness-centrality + 1)]
     ]
   ]
 
-  ;; if contestant's ally was eliminated, select one new ally at random (weighted by centrality)
-  ask contestants with [eliminated? = false and not any? my-out-alliances] [
-    create-alliance-to rnd:weighted-one-of other contestants with [eliminated? = false] [1 / (nw:closeness-centrality + 1)]
+  ;; layout
+  if layout? [
+    layout
   ]
 end
 
@@ -434,24 +406,32 @@ end
 to set-pre-merge-vote
   ask contestants [ set vote nobody ]
 
+
   ask contestants with [eliminated? = false and tribe != winning-tribe] [
     let who-of-target [who] of rnd:weighted-one-of other contestants with [ eliminated? = false and tribe = [tribe] of myself ] [((absolute-value (social - [social] of myself))) / ((mental + physical))]
+    ;; if there is a pair of contestants loyal to each other, they decide who to target together
+    ask contestants with [in-link-neighbor? myself and out-link-neighbor? myself]
+    [
+      set target contestant who-of-target
+      set target-table table:make
+      table:put target-table who-of-target (table:get-or-default target-table who-of-target 0) + 1
+    ]
     set target contestant who-of-target
     set target-table table:make
     table:put target-table who-of-target (table:get-or-default target-table who-of-target 0) + 1
   ]
 
-  spread-targets-pre-merge
+  spread-targets
 
   ask contestants with [eliminated? = false and tribe != winning-tribe] [
-    ;show target-table
+    show target-table
     let who-of-target key-with-max-value target-table
     set target contestant who-of-target
     set target-table table:make
     table:put target-table who-of-target (table:get-or-default target-table who-of-target 0) + 1
   ]
 
-  spread-targets-pre-merge
+  spread-targets
 
   ask contestants with [eliminated? = false and tribe != winning-tribe] [
     ;show target-table
@@ -468,21 +448,6 @@ to set-pre-merge-vote
   ]
 end
 
-
-;; Procedure to spread each contestants targets to allies (weighted by distance)
-to spread-targets-pre-merge
-  ask contestants with [eliminated? = false and tribe != winning-tribe] [
-    let who-of-target [who] of target
-    ask in-link-neighbors with [who != who-of-target] [
-      table:put target-table who-of-target (table:get-or-default target-table who-of-target 0) + 1
-      ask in-link-neighbors with [who != who-of-target and self != [myself] of myself] [
-        table:put target-table who-of-target (table:get-or-default target-table who-of-target 0) + 1 / spread-target-decay
-      ]
-
-    ]
-  ]
-end
-
 ;; Procedure to set each contestants vote after the merge
 to set-post-merge-vote
   ask contestants [ set vote nobody ]
@@ -494,7 +459,7 @@ to set-post-merge-vote
     table:put target-table who-of-target (table:get-or-default target-table who-of-target 0) + 1
   ]
 
-  spread-targets-post-merge
+  spread-targets
 
   ask contestants with [eliminated? = false] [
     let who-of-target key-with-max-value target-table
@@ -503,7 +468,7 @@ to set-post-merge-vote
     table:put target-table who-of-target (table:get-or-default target-table who-of-target 0) + 1
   ]
 
-  spread-targets-post-merge
+  spread-targets
 
   ask contestants with [eliminated? = false] [
     set vote contestant key-with-max-value target-table
@@ -512,24 +477,90 @@ to set-post-merge-vote
 end
 
 ;; Procedure to spread each contestants targets to allies (weighted by distance)
-to spread-targets-post-merge
-  ask contestants with [eliminated? = false] [
+to spread-targets
+  let c contestants with [eliminated? = false]
+
+  if merged? = false [ set c c with [tribe != winning-tribe] ]
+
+  ask contestants with [eliminated? = false and tribe != winning-tribe] [
     let who-of-target [who] of target
     ask in-link-neighbors with [who != who-of-target] [
       table:put target-table who-of-target (table:get-or-default target-table who-of-target 0) + 1
-      ask in-link-neighbors with [who != who-of-target] [
-        table:put target-table who-of-target (table:get-or-default target-table who-of-target 0) + 0.75
-        ask in-link-neighbors with [who != who-of-target] [
-          table:put target-table who-of-target (table:get-or-default target-table who-of-target 0) + 0.5
-      ]
+      ask in-link-neighbors with [who != who-of-target and self != [myself] of myself] [
+        table:put target-table who-of-target (table:get-or-default target-table who-of-target 0) + 1 / spread-target-decay
       ]
     ]
   ]
 end
 
+;; REPORTERS
+
+to-report absolute-value [number]
+  ifelse number >= 0
+    [ report number ]
+    [ report (- number) ]
+end
+
+to-report key-with-max-value [ t ]
+  let l table:to-list t ; convert to list of key/value pairs
+  report first reduce [ [a b] -> ifelse-value (last a > last b) [a] [b]] l ; find pair with max value, report key
+end
+
+to-report merged-reporter
+  report merged?
+end
+
+to-report perceived-threat  ;; turtle reporter
+  report (
+    (mental + physical) / 200
+    + individual-challenge-wins
+    + (count nw:turtles-in-reverse-radius 1)) ^ 2
+end
+
+to-report tribal-council-score
+  let l (list)
+  ;; iterates through contestants who had votes cast against them
+  foreach sort-on [(- votes-against)] contestants with [votes-against > 0][ the-contestant ->
+    set l lput [votes-against] of the-contestant l  ]
+  report l
+end
+
+to-report tribe-0-mental
+  if count contestants with [tribe = 0 and eliminated? = false] = 0 [ report 0 ]
+  report sum [mental] of contestants with [tribe = 0 and eliminated? = false] / count contestants with [tribe = 0 and eliminated? = false]
+end
+
+to-report tribe-0-physical
+  if count contestants with [tribe = 0 and eliminated? = false] = 0 [ report 0 ]
+  report sum [physical] of contestants with [tribe = 0 and eliminated? = false] / count contestants with [tribe = 0 and eliminated? = false]
+end
+
+to-report tribe-1-mental
+  if count contestants with [tribe = 0 and eliminated? = false] = 0 [ report 0 ]
+  report sum [mental] of contestants with [tribe = 1 and eliminated? = false] / count contestants with [tribe = 1 and eliminated? = false]
+end
+
+to-report tribe-1-physical
+  if count contestants with [tribe = 0 and eliminated? = false] = 0 [ report 0 ]
+  report sum [physical] of contestants with [tribe = 1 and eliminated? = false] / count contestants with [tribe = 1 and eliminated? = false]
+end
+
+to-report votes-against  ;; turtle reporter
+  ifelse not merged?
+  [ report count contestants with [eliminated? = false and tribe = [tribe] of myself and vote = myself] ]
+  [ report count contestants with [eliminated? = false and vote = myself] ]
+end
+
+to-report winning-contestant-reporter
+  report winning-contestant
+end
+
+to-report winning-tribe-reporter
+  report winning-tribe
+end
+
 ;; LAYOUT PROCEDURE
 
-;; perform spring layout on all turtles and links
 to layout
   repeat 30 [
     layout-spring turtles links 0.2 2 1
@@ -537,7 +568,7 @@ to layout
   ]
 end
 
-;; OUTPUT PROCEDURES
+;; CSV PROCEDURES
 
 to log-challenge-eliminated-list-to-file
   csv:to-file "challenge-eliminated-list.csv" fput (list "challenge-winner" "eliminated-contestant") challenge-eliminated-list
@@ -560,7 +591,7 @@ to log-voting-histories-to-file
   let r (list "contestant")
   foreach sort-on [(- finish)] contestants [ the-contestant ->
     ask the-contestant [
-      set r lput (word who " " elimination-vote) r
+      set r lput (word who " " elimination-score) r
     ]
   ]
 
@@ -572,86 +603,6 @@ to log-voting-histories-to-file
     ]
   ]
   csv:to-file "voting-histories.csv" l
-end
-
-;; REPORTERS
-
-to-report tribe-0-mental
-  let tribe-count count contestants with [tribe = 0 and eliminated? = false]
-  if tribe-count = 0 [ report 0 ]
-  let tribe-mental 0
-  ask contestants with [tribe = 0 and eliminated? = false] [
-    set tribe-mental tribe-mental + mental
-  ]
-  report tribe-mental * 10 / tribe-count
-end
-
-to-report tribe-1-mental
-  let tribe-count count contestants with [tribe = 1 and eliminated? = false]
-  if tribe-count = 0 [ report 0 ]
-  let tribe-mental 0
-  ask contestants with [tribe = 1 and eliminated? = false] [
-    set tribe-mental tribe-mental + mental
-  ]
-  report tribe-mental * 10 / tribe-count
-end
-
-to-report tribe-0-physical
-  let tribe-count count contestants with [tribe = 0 and eliminated? = false]
-  if tribe-count = 0 [ report 0 ]
-  let tribe-physical 0
-  ask contestants with [tribe = 0 and eliminated? = false] [
-    set tribe-physical tribe-physical + physical
-  ]
-  report tribe-physical * 10 / tribe-count
-end
-
-to-report tribe-1-physical
-  let tribe-count count contestants with [tribe = 1 and eliminated? = false]
-  if tribe-count = 0 [ report 0 ]
-  let tribe-physical 0
-  ask contestants with [tribe = 1 and eliminated? = false] [
-    set tribe-physical tribe-physical + physical
-  ]
-  report tribe-physical * 10 / tribe-count
-end
-
-to-report pre-merge-votes-against  ;; turtle reporter
-  report count contestants with [eliminated? = false and tribe = [tribe] of myself and vote = myself]
-end
-
-to-report post-merge-votes-against  ;; turtle reporter
-  report count contestants with [eliminated? = false and vote = myself]
-end
-
-to-report perceived-threat  ;; turtle reporter
-  report (
-    (mental + physical) / 200
-    + individual-challenge-wins
-    + (count nw:turtles-in-reverse-radius 1)) ^ 2
-end
-
-to-report key-with-max-value [ t ]
-  let l table:to-list t ; convert to list of key/value pairs
-  report first reduce [ [a b] -> ifelse-value (last a > last b) [a] [b]] l ; find pair with max value, report key
-end
-
-to-report absolute-value [number]
-  ifelse number >= 0
-    [ report number ]
-    [ report (- number) ]
-end
-
-to-report merged-reporter
-  report merged?
-end
-
-to-report winning-contestant-reporter
-  report winning-contestant
-end
-
-to-report winning-tribe-reporter
-  report winning-tribe
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -771,7 +722,7 @@ SWITCH
 243
 layout?
 layout?
-1
+0
 1
 -1000
 
@@ -782,15 +733,15 @@ SWITCH
 288
 log?
 log?
-1
+0
 1
 -1000
 
 SWITCH
+655
 10
-300
-197
-333
+842
+43
 create-a-contestant?
 create-a-contestant?
 1
@@ -798,10 +749,10 @@ create-a-contestant?
 -1000
 
 SLIDER
-10
-370
-182
-403
+655
+80
+827
+113
 custom-physical
 custom-physical
 1
@@ -813,10 +764,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-10
-335
-182
-368
+655
+45
+827
+78
 custom-mental
 custom-mental
 1
@@ -827,28 +778,11 @@ custom-mental
 NIL
 HORIZONTAL
 
-BUTTON
-10
-460
-182
-493
-NIL
-contestant-experiment
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
 PLOT
-210
-460
-410
-610
+655
+150
+855
+300
 mean finish of my-contestant
 NIL
 NIL
@@ -858,17 +792,17 @@ NIL
 20.0
 true
 true
-"" ""
+"" "if contestant-experiment-finishes = 0 [ stop ]"
 PENS
 "mean" 1.0 0 -16777216 true "" "plot mean contestant-experiment-finishes"
 "-1 sd" 1.0 0 -7500403 true "" "plot mean contestant-experiment-finishes - standard-deviation contestant-experiment-finishes"
 "+1 sd" 1.0 0 -2674135 true "" "plot mean contestant-experiment-finishes + standard-deviation contestant-experiment-finishes"
 
 MONITOR
-420
-505
-667
-550
+865
+195
+1112
+240
 NIL
 mean contestant-experiment-finishes
 17
@@ -876,10 +810,10 @@ mean contestant-experiment-finishes
 11
 
 MONITOR
-420
-550
-592
-595
+865
+240
+1037
+285
 -1 sd experiment-finishes
 mean contestant-experiment-finishes - standard-deviation contestant-experiment-finishes
 17
@@ -887,10 +821,10 @@ mean contestant-experiment-finishes - standard-deviation contestant-experiment-f
 11
 
 MONITOR
-420
-460
-597
-505
+865
+150
+1042
+195
 +1 sd experiment-finishes
 mean contestant-experiment-finishes + standard-deviation contestant-experiment-finishes
 17
@@ -899,9 +833,9 @@ mean contestant-experiment-finishes + standard-deviation contestant-experiment-f
 
 SLIDER
 10
-575
+300
 192
-608
+333
 spread-target-decay
 spread-target-decay
 0
@@ -914,9 +848,9 @@ HORIZONTAL
 
 BUTTON
 10
-615
+455
 342
-648
+488
 NIL
 repeat-experiment-go
 NIL
@@ -928,6 +862,42 @@ NIL
 NIL
 NIL
 1
+
+BUTTON
+655
+115
+827
+148
+NIL
+contestant-experiment\n
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+PLOT
+655
+305
+855
+455
+Tribal Council Scores
+Time
+Votes Against
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" "if phase != 2 [ stop ]"
+PENS
+"Vote 1" 1.0 1 -13345367 true "" "plot count contestants with [ eliminated? = false and vote = eliminated-contestant ]"
+"Vote 2" 1.0 1 -1184463 true "" "plot count contestants with [ eliminated? = false and vote = max-one-of contestants with [eliminated? = false] [votes-against] ]"
 
 @#$#@#$#@
 ## WHAT IS IT?
@@ -1279,23 +1249,22 @@ NetLogo 6.0.3
 <experiments>
   <experiment name="experiment" repetitions="100" runMetricsEveryStep="true">
     <setup>setup</setup>
-    <go>go</go>
-    <final>show contestants with [finish = 0]</final>
+    <go>repeat-experiment-go</go>
     <metric>[who] of contestants with [finish = 0]</metric>
     <enumeratedValueSet variable="num-contestants">
       <value value="20"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="log?">
+    <enumeratedValueSet variable="layout?">
       <value value="false"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="custom-mental">
-      <value value="1"/>
+    <enumeratedValueSet variable="log?">
+      <value value="false"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="create-a-contestant?">
       <value value="false"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="layout?">
-      <value value="false"/>
+    <enumeratedValueSet variable="custom-mental">
+      <value value="1"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="custom-physical">
       <value value="1"/>
