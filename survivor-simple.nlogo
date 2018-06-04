@@ -1,7 +1,6 @@
 extensions [
   cf
   csv
-  nw
   rnd
   table
 ]
@@ -17,20 +16,24 @@ contestants-own [
   mental
   physical
   social
+  loyalty
 
   target ;; most recent target
   vote  ;; most recent vote
 
+  initial-social
   finish ;; for resume output
   individual-challenge-wins ;; for resume output
 
   elimination-score ;; for voting-history output
   voting-history ;; for voting-history output
+
+  archetypes
 ]
 
 globals [
   merged?
-  phase ;; 0:challenge -> 1:alliances -> 2:tribal council -> repeat
+  phase ;; 0:challenge -> 1:tribal-council -> 2:update social game -> repeat
 
   eliminated-contestant ;; most recent eliminated contestant
   winning-contestant ;; most recent individual challenge winner
@@ -50,20 +53,23 @@ to setup
   create-contestants num-contestants / 2 [ ;; create first tribe
     set tribe 0
     contestant-constructor
-    setxy (- (random max-pxcor / 2)) - max-pxcor / 2  random-ycor
+    setxy (- (random max-pxcor / 2)) - max-pxcor / 2  (social / 100) * (max-pycor * 2) - max-pycor
   ]
 
   create-contestants num-contestants / 2 [ ;; create second tribe
     set tribe 1
     contestant-constructor
-    setxy (random max-pxcor / 2) + max-pxcor / 2 random-ycor
+    setxy (random max-pxcor / 2) + max-pxcor / 2 (social / 100) * (max-pycor * 2) - max-pycor
   ]
 
   if create-a-contestant? [
-    ask one-of contestants [
+    ask contestant 0 [
       set my-contestant self
       set mental custom-mental
       set physical custom-physical
+      set social custom-social
+      set loyalty custom-loyalty
+      setxy (- (random max-pxcor / 2)) - max-pxcor / 2  (social / 100) * (max-pycor * 2) - max-pycor
     ]
     watch my-contestant
   ]
@@ -72,7 +78,6 @@ to setup
   set phase -1
   set merged? false
   set challenge-eliminated-list (list)
-  update-alliances
   reset-ticks
 end
 
@@ -93,10 +98,10 @@ to go
       challenge
     ]
     phase = 1 [
-      update-alliances
+      tribal-council
     ]
     phase = 2 [
-      tribal-council
+      update-alliances
     ]
     [ print phase ])
 
@@ -104,167 +109,87 @@ to go
   tick
 end
 
+;; creates a contestant with random attributes
 to contestant-constructor  ;; turtle procedure
+  set eliminated? false
+
   set mental random 100 + 1
   set physical random 100 + 1
   set social random 100 + 1
-  set eliminated? false
+  set initial-social social
+  set loyalty minimum-loyalty + random-float (1 - minimum-loyalty)
+
   set individual-challenge-wins 0
-  set voting-history (list)
+
   set elimination-score ""
+  set voting-history (list)
+
+  set archetypes (list)
+  set-archetypes
 end
 
+;; adds labels to contestants for later analysis
+to set-archetypes  ;; turtle procedure
+  if loyalty < (minimum-loyalty + 0.1) [
+    set archetypes lput "Deceptive" archetypes
+  ]
+
+  if loyalty > 0.9 [
+    set archetypes lput "Loyal" archetypes
+  ]
+
+  if mental > 50 and physical > 50 [
+    set archetypes lput "Balanced" archetypes
+  ]
+
+  if mental > 90 [
+    set archetypes lput "Smart" archetypes
+  ]
+
+  if physical > 90 [
+    set archetypes lput "Strong" archetypes
+  ]
+
+  if social > 40 and social < 60 [
+    set archetypes lput "Diplomatic" archetypes
+  ]
+
+  if social > 90 or social < 10 [
+    set archetypes lput "Eccentric" archetypes
+  ]
+end
+
+;; merges tribes
 to merge
   set merged? true
   ask contestants with [eliminated? = false] [
-    setxy (random max-pxcor) -  max-pxcor / 2 random-ycor
-  ]
-end
-
-;; EXPERIMENT PROCEDURES
-
-;; Procedure to run 250 runs with my-contestant
-to contestant-experiment
-  contestant-experiment-setup
-  repeat 250 [ contestant-experiment-go ]
-end
-
-to contestant-experiment-setup
-  ca
-  set-default-shape contestants "person"
-
-  set contestant-experiment-finishes (list)
-
-  reset-ticks
-end
-
-to contestant-experiment-go
-  clear-turtles
-  clear-patches
-  clear-drawing
-
-  create-contestants num-contestants / 2 [ ;; create first tribe
-    set tribe 0
-    contestant-constructor
-    setxy (- (random max-pxcor / 2)) - max-pxcor / 2  random-ycor
-  ]
-
-  create-contestants num-contestants / 2 [ ;; create second tribe
-    set tribe 1
-    contestant-constructor
-    setxy (random max-pxcor / 2) + max-pxcor / 2 random-ycor
-  ]
-
-  if create-a-contestant? [
-    ask one-of contestants [
-      set my-contestant self
-      set mental custom-mental
-      set physical custom-physical
-    ]
-    watch my-contestant
-  ]
-
-  set merged? false
-  set challenge-eliminated-list (list)
-  update-alliances
-
-  while [count contestants with [eliminated? = false] != 2] [
-    if count contestants with [eliminated? = false] = num-contestants / 2 + 2 [ merge ]
-    challenge
-    update-alliances
-    tribal-council
-  ]
-  set contestant-experiment-finishes lput [finish] of my-contestant contestant-experiment-finishes
-  tick
-end
-
-to repeat-experiment
-  repeat-experiment-setup
-  repeat 250 [ repeat-experiment-go ]
-  log-repeat-experiment-finishes-table-to-file
-end
-
-to repeat-experiment-setup
-  ca
-  set-default-shape contestants "person"
-
-  create-contestants num-contestants / 2 [ ;; create first tribe
-    set tribe 0
-    contestant-constructor
-    setxy (- (random max-pxcor / 2)) - max-pxcor / 2  random-ycor
-  ]
-
-  create-contestants num-contestants / 2 [ ;; create second tribe
-    set tribe 1
-    contestant-constructor
-    setxy (random max-pxcor / 2) + max-pxcor / 2 random-ycor
-  ]
-
-  set repeat-experiment-finishes-table table:make
-  ask contestants [
-    table:put repeat-experiment-finishes-table who (list)
-  ]
-
-  reset-ticks
-end
-
-to repeat-experiment-go
-  ask contestants [
-    st
-    set eliminated? false
-    set individual-challenge-wins 0
-    set voting-history (list)
-    set elimination-score ""
+    set xcor (random max-pxcor) -  max-pxcor / 2
     ifelse tribe = 0 [
-      setxy (- (random max-pxcor / 2)) - max-pxcor / 2  random-ycor
+      ;set ycor social / 100 * max-pycor
     ]
     [
-      setxy ((random max-pxcor / 2)) + max-pxcor / 2  random-ycor
+      ;set ycor social / 100 * max-pycor
     ]
   ]
-
-  set merged? false
-  set challenge-eliminated-list (list)
-  update-alliances
-
-  while [count contestants with [eliminated? = false] != 2] [
-    if count contestants with [eliminated? = false] = num-contestants / 2 + 2 [ merge ]
-    challenge
-    update-alliances
-    tribal-council
-  ]
-
-  ;show repeat-experiment-finishes-table
-  ask contestants [
-    table:put repeat-experiment-finishes-table who lput finish table:get repeat-experiment-finishes-table who
-  ]
-
-  if log?
-  [
-    log-challenge-eliminated-list-to-file
-    log-contestant-resumes-to-file
-    log-voting-histories-to-file
-    stop
-  ]
-
-  tick
 end
 
-;; CHALLENGE PROCEDURES
-
-;; Procedure to run correct challenge procedure
+;; sets mental/physical ratio for each challenge, randomly selects winner with probability based on overall mental/physical abilities
 to challenge
+  let challenge-mental-physical-ratio random-float 1
   ifelse not merged? [
-    let tribe-0-physical-mental (tribe-0-physical + tribe-0-mental) ^ 2
-    let tribe-1-physical-mental (tribe-1-physical + tribe-1-mental) ^ 2
-    let tribes list (list 0 tribe-0-physical-mental) (list 1 tribe-1-physical-mental)
+
+    let tribe-0-mental-physical (challenge-mental-physical-ratio * tribe-0-mental + (1 - challenge-mental-physical-ratio) * tribe-0-physical) ^ 2
+    let tribe-1-mental-physical (challenge-mental-physical-ratio * tribe-1-mental + (1 - challenge-mental-physical-ratio) * tribe-1-physical) ^ 2
+
+    let tribes list (list 0 tribe-0-mental-physical) (list 1 tribe-1-mental-physical)
+
     set winning-tribe first rnd:weighted-one-of-list tribes [ [t] -> last t ]
 
     ;; log
     if log? [ print word "Tribe " word winning-tribe " Won Challenge" ]
   ]
   [
-    set winning-contestant rnd:weighted-one-of contestants with [eliminated? = false] [(physical + mental) ^ 2]
+    set winning-contestant rnd:weighted-one-of contestants with [eliminated? = false] [(challenge-mental-physical-ratio * mental + (1 - challenge-mental-physical-ratio) * physical) ^ 2]
 
     ask winning-contestant [
       set individual-challenge-wins individual-challenge-wins + 1
@@ -275,14 +200,13 @@ to challenge
   ]
 end
 
-;; TRIBAL COUNCIL PROCEDURES
-
-;; Procedure to run correct tribal council procedure
+;; calculates which contestant to eliminate from the game based on votes
 to tribal-council
   let c contestants with [eliminated? = false]
   set-vote
+
   ifelse not merged? [
-    ;; pick contestant to eliminate
+    ;; Pre-Merge: losing tribe votes to eliminate a contestant
     let to-eliminate max-one-of c with [tribe != winning-tribe] [votes-against]
 
     ;; log
@@ -301,7 +225,7 @@ to tribal-council
     set challenge-eliminated-list lput (list winning-tribe eliminated-contestant) challenge-eliminated-list
   ]
   [
-    ;; pick contestant to eliminate
+    ;; Post-Merge: entire merged tribe votes to eliminate a contestant
     let to-eliminate max-one-of c [votes-against]
 
     ;; log
@@ -315,13 +239,12 @@ to tribal-council
       ]
     ]
 
-    ;; eliminate contestant
     ask to-eliminate [ eliminate ]
     set challenge-eliminated-list lput (list winning-contestant eliminated-contestant) challenge-eliminated-list
   ]
 end
 
-;; Procedure to eliminate contestant
+;; completes bookwork required to eliminate a contestant
 to eliminate  ;; turtle procedure
   if log? [ print word "Contestant " word who " Eliminated" ]
   set-elimination-score
@@ -332,7 +255,7 @@ to eliminate  ;; turtle procedure
   set finish count contestants - count contestants with [eliminated? = true] + 1
 end
 
-;; Procedure to set each contestants elimination vote (ex. contestant eliminated 5 votes to 3 votes, output: (5-3))
+;; sets each contestants elimination vote for output (ex. contestant eliminated 5 votes to 3 votes, output: (5-3))
 to set-elimination-score ;; turtle procedure
   set elimination-score (word "(" first tribal-council-score)
   foreach but-first tribal-council-score [ num ->
@@ -341,55 +264,43 @@ to set-elimination-score ;; turtle procedure
   set elimination-score (word elimination-score ")")
 end
 
-;; ALLIANCE PROCEDURES
-
-;; Procedure to run correct procedure to update allies
+;; updates contestant's social property and alliance links based on previous vote
 to update-alliances
-  ask contestants with [eliminated? = false] [
-    set social social + random 2 * social-wiggle - social-wiggle
-  ]
-
-  if not merged? [ nw:set-context contestants with [eliminated? = false and tribe != winning-tribe] alliances with [member? end1 contestants with [tribe != winning-tribe]] ]
 
   ;; Line In The Sand: if contestant did not vote with their ally, they are no longer allies
   ask contestants with [eliminated? = false] [
     ask my-alliances [
-      if [vote] of end2 != [vote] of myself [ die ]
+      if [vote] of other-end != [vote] of myself [ die ]
     ]
-
-    ifelse not merged? [
-      create-alliances-with other contestants with [eliminated? = false and tribe = [tribe] of myself and (social-difference myself) < max-alliance-social-difference]
-    ]
-    [
-      create-alliances-with other contestants with [eliminated? = false and (social-difference myself) < max-alliance-social-difference]
-    ]
-
-
   ]
 
-  ;; layout
-  if layout? [
-    layout
+  ;; contestants who vote together are linked together and have their "social" properties grow closer
+  ask contestants with [eliminated? = false and vote != nobody] [
+    let mean-alliance-social mean [social] of contestants with [eliminated? = false and vote = [vote] of myself]
+    let social-change social-update-rate * (mean-alliance-social - social)
+    set social social + social-change
+    set ycor (social / 100) * (max-pycor * 2) - max-pycor
+    ifelse not merged? [
+      create-alliances-with other contestants with [eliminated? = false and tribe = [tribe] of myself and vote = [vote] of myself]
+    ]
+    [
+      create-alliances-with other contestants with [eliminated? = false and vote = [vote] of myself]
+    ]
   ]
 end
 
-;; VOTE PROCEDURES
-
+;; sets each contestants vote for an elimination
 to set-vote
   ask contestants [
       set target nobody
       set vote nobody
     ]
   ifelse not merged? [
+    ;; Pre-Merge, every contestant on the losing tribe selects one target at random w/probability = (social-difference myself) / (mental + physical)
     ask contestants with [eliminated? = false and tribe != winning-tribe] [
-
-      let who-of-target [who] of rnd:weighted-one-of other contestants with [ eliminated? = false and tribe = [tribe] of myself ] [(social-difference myself) / (mental + physical)]
-
-      set target contestant who-of-target
-
-      ;table:put target-table who-of-target (table:get-or-default target-table who-of-target 0) + 1
+      set target rnd:weighted-one-of other contestants with [ eliminated? = false and tribe = [tribe] of myself ] [(social-difference myself) / (mental + physical)]
     ]
-
+    ;; next, every contestant chooses between the top two targets based solely on social difference
     let target-table table:counts [[who] of target] of contestants with [eliminated? = false and tribe != winning-tribe]
 
     let primary-target key-with-max-value target-table
@@ -397,7 +308,7 @@ to set-vote
     let secondary-target key-with-max-value target-table
 
     ask contestants with [eliminated? = false and tribe != winning-tribe] [
-      set vote max-one-of (turtle-set contestant primary-target contestant secondary-target) [ social-difference myself ]
+      set vote max-one-of (turtle-set (contestant primary-target) (contestant secondary-target)) [ social-difference myself ]
     ]
 
     ask contestants with [eliminated? = false] [
@@ -410,13 +321,11 @@ to set-vote
     ]
   ]
   [
+    ;; Post-Merge, every contestant selects one target at random w/probability = (social-difference + perceived-threat)
     ask contestants with [eliminated? = false] [
-
-      let who-of-target [who] of rnd:weighted-one-of other contestants with [ eliminated? = false and self != winning-contestant ] [social-difference myself + perceived-threat]
-
-      set target contestant who-of-target
+      set target rnd:weighted-one-of other contestants with [ eliminated? = false and self != winning-contestant ] [social-difference myself + perceived-threat]
     ]
-
+    ;; next, every contestant chooses between the top two targets based solely on social difference
     let target-table table:counts [[who] of target] of contestants with [eliminated? = false]
 
     let primary-target key-with-max-value target-table
@@ -428,12 +337,8 @@ to set-vote
     ]
 
     ask contestants with [eliminated? = false] [
-      ifelse vote = nobody [
-        set voting-history lput "-" voting-history
-      ]
-      [
-        set voting-history lput [who] of vote voting-history
-      ]
+      ifelse vote = nobody [ set voting-history lput "-" voting-history ]
+      [ set voting-history lput [who] of vote voting-history ]
     ]
   ]
 end
@@ -451,10 +356,6 @@ to-report key-with-max-value [ t ]
   report first reduce [ [a b] -> ifelse-value (last a > last b) [a] [b]] l ; find pair with max value, report key
 end
 
-to-report merged-reporter
-  report merged?
-end
-
 to-report perceived-threat  ;; turtle reporter
   report (
     (mental + physical)
@@ -463,7 +364,12 @@ to-report perceived-threat  ;; turtle reporter
 end
 
 to-report social-difference [ ms ] ;; turtle reporter
-  report (absolute-value (social - [social] of ms))
+  if not merged? [
+    report (absolute-value (social - [social] of ms)) * [loyalty] of ms
+  ]
+  report round absolute-value (social - [social] of ms) * [loyalty] of ms
+  ;report round absolute-value ((social - [social] of ms) + (0.9) ^ (sum [individual-challenge-wins] of contestants) * 50 * absolute-value (tribe - [tribe] of ms)) * [loyalty] of ms
+  ;; post-merge social difference: social-difference + 50 * decay (if different tribe)
 end
 
 to-report tribal-council-score
@@ -508,15 +414,6 @@ to-report winning-tribe-reporter
   report winning-tribe
 end
 
-;; LAYOUT PROCEDURE
-
-to layout
-  repeat 30 [
-    layout-spring turtles links 0.2 2 1
-    display
-  ]
-end
-
 ;; CSV PROCEDURES
 
 to log-challenge-eliminated-list-to-file
@@ -525,24 +422,13 @@ end
 
 to log-contestant-resumes-to-file
   let l (list)
-  set l lput (list "contestant" "tribe" "finish" "individual-challenge-wins" "mental" "physical" "social") l
+  set l lput (list "contestant" "tribe" "finish" "individual-challenge-wins" "mental" "physical" "social" "loyalty" "archetypes") l
   foreach sort-on [(- finish)] contestants[ the-contestant ->
     ask the-contestant [
-      set l lput (list who tribe finish individual-challenge-wins mental physical social) l
+      set l lput (list who tribe finish individual-challenge-wins mental physical initial-social precision loyalty 2 archetypes) l
     ]
   ]
   csv:to-file "contestant-resumes.csv" l
-end
-
-to log-repeat-experiment-finishes-table-to-file
-  let l (list)
-  set l lput (list "contestant" "tribe" "finish" "mental" "physical" "social") l
-  foreach sort-on [(- mean table:get repeat-experiment-finishes-table who)] contestants[ the-contestant ->
-    ask the-contestant [
-      set l lput (list who tribe mean table:get repeat-experiment-finishes-table who mental physical social) l
-    ]
-  ]
-  csv:to-file "repeat-experiment-finishes-table.csv" l
 end
 
 to log-voting-histories-to-file
@@ -651,46 +537,18 @@ SLIDER
 num-contestants
 num-contestants
 0
-1000
+100
 20.0
 2
 1
 NIL
 HORIZONTAL
 
-BUTTON
-10
-210
-77
-243
-NIL
-layout
-T
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-SWITCH
-90
-210
-193
-243
-layout?
-layout?
-0
-1
--1000
-
 SWITCH
 10
-255
+205
 113
-288
+238
 log?
 log?
 0
@@ -717,7 +575,7 @@ custom-physical
 custom-physical
 1
 100
-1.0
+100.0
 1
 1
 NIL
@@ -732,143 +590,67 @@ custom-mental
 custom-mental
 1
 100
-1.0
+100.0
 1
 1
 NIL
 HORIZONTAL
 
-PLOT
+SLIDER
 655
 150
-855
-300
-mean finish of my-contestant
-NIL
-NIL
-0.0
-10.0
-0.0
-20.0
-true
-true
-"" "if contestant-experiment-finishes = 0 [ stop ]"
-PENS
-"mean" 1.0 0 -16777216 true "" "plot mean contestant-experiment-finishes"
-"-1 sd" 1.0 0 -7500403 true "" "plot mean contestant-experiment-finishes - standard-deviation contestant-experiment-finishes"
-"+1 sd" 1.0 0 -2674135 true "" "plot mean contestant-experiment-finishes + standard-deviation contestant-experiment-finishes"
-
-MONITOR
-865
-195
-1112
-240
-NIL
-mean contestant-experiment-finishes
-17
+827
+183
+custom-loyalty
+custom-loyalty
+0
 1
-11
+0.5
+0.1
+1
+NIL
+HORIZONTAL
 
-MONITOR
-865
-240
-1037
+SLIDER
+10
+245
+182
+278
+minimum-loyalty
+minimum-loyalty
+0
+1.0
+0.5
+0.1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+10
 285
--1 sd experiment-finishes
-mean contestant-experiment-finishes - standard-deviation contestant-experiment-finishes
-17
+182
+318
+social-update-rate
+social-update-rate
+0
+0.25
+0.05
+0.05
 1
-11
+NIL
+HORIZONTAL
 
-MONITOR
-865
-150
-1042
-195
-+1 sd experiment-finishes
-mean contestant-experiment-finishes + standard-deviation contestant-experiment-finishes
-17
-1
-11
-
-BUTTON
-5
-495
-337
-528
-NIL
-repeat-experiment
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
+SLIDER
 655
 115
 827
 148
-NIL
-contestant-experiment\n
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-PLOT
-655
-305
-855
-455
-Tribal Council Scores
-Time
-Votes Against
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" "if phase != 2 [ stop ]\nlet target-table table:counts [[who] of vote] of contestants with [eliminated? = false and tribe != winning-tribe]\nif merged? [\nset target-table table:counts [[who] of vote] of contestants with [eliminated? = false]\n]\n\nlet primary-target key-with-max-value target-table\nif primary-target = nobody [ stop ]\ntable:remove target-table primary-target\nlet secondary-target key-with-max-value target-table\n\nlet total 0\nlet primary-votes count contestants with [ eliminated? = false and vote = primary-target ]\nlet secondary-votes count contestants with [ eliminated? = false and vote = secondary-target]\n\nset-current-plot-pen \"Primary Vote\"\nplot-pen-up plotxy ticks total\nset total total + primary-votes\nplot-pen-down plotxy ticks total\n\nset-current-plot-pen \"Secondary Vote\"\nplot-pen-up plotxy ticks total\nset total total + secondary-votes\nplot-pen-down plotxy ticks total"
-PENS
-"Primary Vote" 1.0 1 -955883 true "" ""
-"Secondary Vote" 1.0 1 -8630108 true "" ""
-
-SLIDER
-5
-450
-247
-483
-max-alliance-social-difference
-max-alliance-social-difference
+custom-social
+custom-social
 0
-50
-15.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-5
-400
-177
-433
-social-wiggle
-social-wiggle
-0
-5
-0.0
+100
+50.0
 1
 1
 NIL
@@ -877,20 +659,39 @@ HORIZONTAL
 @#$#@#$#@
 ## WHAT IS IT?
 
-This model of alliances  
-(a general understanding of what the model is trying to show or explain)
+This model of contestants within the game of Survivor illustrates the behavior of teams and players within the game of Survivor when forced to vote out a member. Over time, fluid voting "alliances" emerge, but not without members that betray their alliance, or repeatedly flip back and forth between two large alliances.
 
 ## HOW IT WORKS
+Pre-Merge:
+At each tick, tribes compete in a challenge, with a winner randomly selected based on a probability weighted on a tribes overall mental and physical ability. The losing tribe is forced to vote to eliminate one member. Each member decides who to vote for based on mental and physical ability (the stronger the better), and their social property (the closer the better). The member with the most votes is eliminated. Contestants who vote together grow slightly closer together socially with each vote.
 
-(what rules the agents use to create the overall behavior of the model)
+The "merge", signaling the evolution of Survivor from a tribe vs tribe game to an individual game, happens when half of the initial contestants have been eliminated.
+
+Post-Merge:
+At each tick, individuals compete in a challenge, with a winner randomly selected based on a probability weighted on a contestant's mental and physical ability. The tribe must vote to eliminate one member (the challenge winner is immune). The member with the most votes is eliminated. Each member decides who to vote for based on mental and physical ability (the weaker the better), and their social property (the closer the better). Contestants who vote together grow slightly closer together socially with each vote.
+
+Initially, contestants are randomly generated with mental, physical, social, and loyalty properties.
+
+* Mental and physical abilities (0-100) determine contestants' effectiveness at winning "challenges" (challenge winneres are granted immunity from elimination). The social property represents each contestant's "social game", i.e. the relationships and alliances they make.
+
+* The social property (0-100) represents each contestant's "social game", i.e. the relationships and alliances they develop. Contestants are less likely to vote out members they are "close to" socially (similar social properties)
+
+* The loyalty parameter (0-1) represents the significance a player puts into their social relationships and alliances when deciding who to vote for. For example, contestant with low loyalty is more likely to vote out a member they are close to socially that a contestant with high loyalty.
 
 ## HOW TO USE IT
+Click the SETUP button to start a new game. Click GO-ONCE to conduct a challenge, again to eliminate a member, and again to update contestants' alliances and social game.
 
-(how to use the model, including a description of each of the items in the Interface tab)
+Click GO to indefinitely conduct challenges, eliminate contestants, and update alliances until a game is finished (only two contestants remaining)
+
+Use the NUM-CONTESTANTS slider to determine how many contestants the game starts with. Use the LOG? switch to output results in the command center.
+
+Use the MINIMUM-LOYALTY slider to determine the minimum loyalty value to use when randomly generating contestant's loyalty properties at the start. I have observed that even the most cutthroat Survivor players give *some* value to their established alliances and social relationships, making a non-zero minimum-loyalty make sense.
+
+Use the SOCIAL-UPDATE-RATE slider to determine how quickly alliance's social properties converge.
 
 ## THINGS TO NOTICE
 
-(suggested things for the user to notice while running the model)
+The model tries to create an environment where the general voting patterns of past Survivor seasons emerge. Overall, the contestants who are best at challenges (i.e. the strongest and smartest) are not the contestants most likely to make it to the end of the game. Rather, it is the contestants who are best at making and managing their voting alliances that succeed.
 
 ## THINGS TO TRY
 
@@ -1222,28 +1023,10 @@ NetLogo 6.0.3
 @#$#@#$#@
 @#$#@#$#@
 <experiments>
-  <experiment name="experiment" repetitions="100" runMetricsEveryStep="true">
+  <experiment name="experiment" repetitions="250" runMetricsEveryStep="false">
     <setup>setup</setup>
-    <go>repeat-experiment-go</go>
-    <metric>[who] of contestants with [finish = 0]</metric>
-    <enumeratedValueSet variable="num-contestants">
-      <value value="20"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="layout?">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="log?">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="create-a-contestant?">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="custom-mental">
-      <value value="1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="custom-physical">
-      <value value="1"/>
-    </enumeratedValueSet>
+    <go>go</go>
+    <metric>[archetypes] of one-of contestants with [finish = 0]</metric>
   </experiment>
 </experiments>
 @#$#@#$#@
